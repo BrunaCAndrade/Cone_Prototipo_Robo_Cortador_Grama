@@ -1,0 +1,18 @@
+[Unit]
+Description=Cone PWA
+After=network.target NetworkManager.service
+
+[Service]
+# Usuário e Diretório
+User=cone
+WorkingDirectory=/home/cone/cone_interface
+
+# Comando para rodar FastAPI via Uvicorn no IP especificado
+# host 10.0.0.1 garante que só funciona no AP (segurança) ou 0.0.0.0 para tudo
+ExecStart=/home/cone/cone_interface/venv/bin/uvicorn app.main:app --host 10.0.0.1 --port 8000
+
+Restart=always
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
