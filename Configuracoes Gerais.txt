@@ -1,0 +1,314 @@
+1) SOBRE O PROJETO
+======================================================================
+PROJETO CONE (Cortador Operado por Navegação Eletrônica)
+======================================================================
+INSTITUICAO: UTFPR - Campus Pato Branco
+CURSO:       Engenharia de Computação
+MATERIA:     Oficina de Integração
+PROJETO:     Robotnik
+AUTORES:     [Bruna Andrade, Lucas Santos de Lucca e Marco Antônio]
+
+DESCRICAO:
+Robô autônomo para corte de grama com arquitetura de processamento distribuído.
+ - ALTO NIVEL (Raspberry Pi 4): Responsável pela Visão Computacional
+   (TensorFlow Lite), tomada de decisão estratégica e navegação visual.
+ - BAIXO NIVEL (STM32 Blackpill F411): Responsável pelo controle em
+   tempo real, leitura de sensores (Giroscópio, Acelerômetro, Lasers)
+   e acionamento dos motores.
+
+OBJETIVO:
+Criar uma aplicação PWA simples para auxiliar na coleta de dados, utilizando
+a Raspberry pi como um AP(Acess Point) que hospeda uma aplicação web feita em python,
+HTML e JS. A aplicação vai controlar a camera dando opções para a gravação de video,
+tirar fotos, verifica logs e a possíbilidade de baixar os datasets.
+
+======================================================================
+2) SOBRE O HARDWARE
+======================================================================
+PLACA: Raspberry Pi 4 Model B
+  - CPU: Broadcom BCM2711, Quad core Cortex-A72 (ARM v8) 64-bit SoC @ 1.8GHz
+  - RAM: 4GB
+  - Armazenamento: Cartão SD 32GB
+  - Alimentação: 5V DC via USB-C (min 3A) ou GPIO (min 3A)
+
+CAMERA: Raspberry Pi Camera Module v1.3
+  - Sensor: OmniVision OV5647 (CMOS 5MP)
+  - Tamanho do Sensor: ~1/4 polegada (3.67 x 2.74 mm)
+  - Pixel: 1.4 μm x 1.4 μm
+  - Resolução Máxima: 2592 × 1944 pixels
+  - Vídeo: 1080p @ 30fps
+  - FOV: ~60° a 65°
+
+# Software principal
+
+Python 3.11
+FastAPI
+uvicorn
+rpicam
+FFmpeg
+systemd (serviços)
+hostapd + dnsmasq (Access Point)
+
+======================================================================
+3) COMO CONECTAR AO CONE
+======================================================================
+PASSO 1 — Ligar o Raspberry Pi
+
+Basta alimentação 5V/3A.
+Ele automaticamente ativa:
+o TailScale para SSH e VNC (100.94.166.112)
+o Access Point
+o serviço FastAPI
+a captura de câmera
+
+PASSO 2 — No celular/notebook:
+Abrir configurações de Wi-Fi e conectar em:
+
+Nome da rede: Cone
+Senha: cone1234
+
+PASSO 3 — Acessar a interface:
+
+No navegador:
+http://10.0.0.1:8000
+
+PASSO 4 — Uso
+
+Na página você poderá:
+Iniciar/parar gravação
+Capturar fotos
+Fazer burst
+Baixar vídeos/fotos
+Visualizar logs
+Criar ZIP
+Limpar galeria
+
+======================================================================
+4) INSTALACAO DO SISTEMA
+======================================================================
+4.1) REMOVER NETWORKMANAGER (para evitar conflitos)
+sudo systemctl disable --now NetworkManager
+sudo apt remove -y network-manager network-manager-config-connectivity-debian
+sudo systemctl mask NetworkManager
+
+4.2) ATIVAR E CONFIGURAR DHCPCD
+sudo systemctl enable --now dhcpcd
+
+Editar IP fixo da wlan0:
+sudo nano /etc/dhcpcd.conf
+
+Adicionar ao final:
+
+interface wlan0
+    static ip_address=10.0.0.1/24
+    nohook wpa_supplicant
+
+
+Reiniciar:
+sudo systemctl restart dhcpcd
+
+4.3) INSTALAR HOSTAPD + DNSMASQ
+sudo apt install -y hostapd dnsmasq
+sudo systemctl stop hostapd
+sudo systemctl stop dnsmasq
+
+4.4) CONFIGURAR O PONTO DE ACESSO (hostapd)
+Criar o arquivo:
+sudo nano /etc/hostapd/hostapd.conf
+
+Conteúdo:
+
+interface=wlan0
+driver=nl80211
+ssid=Cone
+hw_mode=g
+channel=6
+wmm_enabled=1
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=cone1234
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+
+Vincular o arquivo ao daemon:
+sudo nano /etc/default/hostapd
+
+Definir:
+DAEMON_CONF="/etc/hostapd/hostapd.conf"
+
+4.5) CONFIGURAR DHCP DO AP (dnsmasq)
+Backup do arquivo default:
+sudo mv /etc/dnsmasq.conf /etc/dnsmasq.conf.backup
+
+Criar novo:
+sudo nano /etc/dnsmasq.conf
+
+Conteúdo:
+
+interface=wlan0
+dhcp-range=10.0.0.10,10.0.0.250,255.255.255.0,24h
+
+4.6) DESATIVAR POWER SAVING DO WIFI
+sudo iw dev wlan0 set power_save off
+
+4.7) INICIAR E HABILITAR OS SERVIÇOS
+sudo systemctl enable hostapd
+sudo systemctl enable dnsmasq
+sudo systemctl start hostapd
+sudo systemctl start dnsmasq
+
+Pronto — o Access Point estará funcionando.
+
+4.8) ESTRUTURA DA APLICAÇÃO
+
+A aplicação fica em:
+/home/cone/cone_interface/
+
+Arquivos importantes:
+main.py (FastAPI)
+app/templates/index.html (PWA)
+logs/system.log
+recordings/ (fotos e vídeos)
+
+4.9) CRIAR O SERVIÇO DO CONE (FastAPI)
+Criar:
+sudo nano /etc/systemd/system/cone.service
+
+Conteúdo:
+
+[Unit]
+Description=Aplicação CONE (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=cone
+WorkingDirectory=/home/cone/cone_interface
+ExecStart=/usr/bin/python3 /home/cone/cone_interface/main.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+Ativar:
+sudo systemctl enable cone
+sudo systemctl start cone
+
+Diagnóstico:
+sudo systemctl status cone
+journalctl -u cone -f
+
+# Caso o sistema reiniciar
+journalctl -p 3 -xb -1
+
+# Diagnostico de energia
+vcgencmd get_throttled
+
+# Status do TailScale
+sudo systemctl status tailscaled
+
+# Verificar temperatura
+vcgencmd measure_temp
+
+# Logs criticos (Ultimos 50)
+sudo dmesg | grep -iE "voltage|eth0|fail|error" | tail -n 20
+
+# Problema no Ipv6 que faz o TailScale se perder
+sudo nano /etc/sysctl.conf
+
+> No final do arquivo
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+
+> Salve (Ctrl+O, Enter) e saia (Ctrl+X)
+sudo sysctl -p
+sudo systemctl restart tailscaled
+
+======================================================================
+5) ESTRUTURA DA APLICAÇÃO (FASTAPI + CÂMERA)
+======================================================================
+A aplicação implementa:
+GET /api/status
+GET /api/record/start
+GET /api/record/stop
+GET /api/photo/single
+GET /api/photo/sequence
+GET /api/files/download/{filename}
+GET /api/files/zip
+GET /api/files/delete_all
+GET /api/logs/app
+GET /api/logs/kernel
+GET /api/logs/system
+
+Captura de fotos:
+rpicam-still -t 100 -o arquivo.jpg --width 2592 --height 1944 --nopreview
+
+Vídeos:
+rpicam-vid -t 0 -o arquivo.h264 --width 1920 --height 1080 --framerate 30
+
+Conversão:
+ffmpeg -y -framerate 30 -i arquivo.h264 -c copy arquivo.mp4
+
+======================================================================
+6) PROBLEMAS ENCONTRADOS E SOLUÇÕES
+======================================================================
+Celular retornava: "senha incorreta"
+
+Causa: NetworkManager gerava campos WEP ocultos.
+Solução: Desinstalar NM(network manager) e usar modo legacy (hostapd).
+
+wlan0 como "DOWN" ou "unmanaged"
+
+Causa: conflito entre NM, dhcpcd, systemd-networkd.
+Solução: desabilitar tudo exceto dhcpcd.
+
+Conversão h264 → mp4 falhava
+
+Causa: arquivo ainda estava sendo escrito.
+Solução: introduzido delay de 1s + try/catch.
+
+Visualização travava
+
+Causa: rpicam ainda ativo após parada abrupta.
+Solução: força /usr/bin/pkill rpicam-* no stop.
+
+Problema no Ipv6 que faz o TailScale se perder
+sudo nano /etc/sysctl.conf
+
+> No final do arquivo
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+
+> Salve (Ctrl+O, Enter) e saia (Ctrl+X)
+sudo sysctl -p
+sudo systemctl restart tailscaled
+
+
+======================================================================
+8) COMANDOS ÚTEIS
+======================================================================
+Rede:
+iw dev wlan0 info
+ip addr show wlan0
+ping 10.0.0.1
+
+Logs:
+journalctl -u cone -f
+dmesg | tail
+vcgencmd get_throttled
+vcgencmd measure_temp
+
+Serviços:
+sudo systemctl restart cone
+sudo systemctl restart hostapd
+sudo systemctl restart dnsmasq
+
+Portas seriais(para a conexão SERIAL do STM32):
+ls -l /dev/serial/by-id/
+
+Para a conexão...
+picocom -b 115200 --imap lfcrlf /dev/ttyUSB0

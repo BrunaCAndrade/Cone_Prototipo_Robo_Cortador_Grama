@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Cone Data Collector</title>
+    <style>
+        body {
+            background: #ffffff;
+            color: #000000;
+            font-family: "Courier New", monospace;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 35px;
+            font-size: 28px;
+            letter-spacing: 3px;
+        }
+
+        hr {
+            width: 90%;
+            border: 0;
+            border-top: 2px solid #000;
+            margin: 25px auto;
+        }
+
+        .status-box {
+            border: 2px solid #000;
+            padding: 20px;
+            margin: 20px auto;
+            width: 85%;
+            text-align: center;
+            background: #e9ecef;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            width: 85%;
+            margin: 0 auto;
+        }
+
+        button {
+            width: 100%;
+            padding: 18px;
+            border: 2px solid #000;
+            font-size: 18px;
+            font-family: "Courier New", monospace;
+            cursor: pointer;
+        }
+
+        .green { background: #2ecc71; color: #fff; }
+        .red   { background: #e74c3c; color: #fff; }
+        .blue  { background: #3498db; color: #fff; }
+        .orange{ background: #f39c12; color: #fff; }
+        .black { background: #000;     color: #fff; }
+
+        /* GALLERY */
+        .gallery {
+            width: 90%;
+            margin: 20px auto;
+        }
+
+        .file-box {
+            border: 2px solid #000;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        a {
+            text-decoration: none;
+            color: #000;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>CONE DATA COLLECTOR</h1>
+<hr>
+
+<div class="status-box">
+    SISTEMA: <span id="cam_status">Carregando...</span><br>
+    TAILSCALE: <span id="tailscale_status">Carregando...</span>
+    <div><b>LOG STM32</b></div>
+    <pre id="motor_log" style="white-space:pre-wrap; max-height:220px; overflow:auto; margin:10px 0 0 0;"></pre>
+</div>
+
+<h2 style="text-align:center;">CONTROLES</h2>
+<div class="grid">
+    <button class="green" onclick="startRecord()">INICIAR GRAVAÇÃO</button>
+    <button class="red" onclick="stopRecord()">PARAR GRAVAÇÃO</button>
+
+    <button class="green" onclick="takePhoto()">FOTO ÚNICA</button>
+    <button class="green" onclick="sequencePhotos()">BURST (5x)</button>
+</div>
+
+<hr>
+
+<h2 style="text-align:center;">DIAGNÓSTICO & FUNÇÕES</h2>
+<div class="grid">
+    <button class="black" onclick="window.location='/api/logs/app'">APP LOG</button>
+    <button class="black" onclick="window.location='/api/logs/kernel'">KERNEL (DMESG)</button>
+    <button class="black" onclick="window.location='/api/logs/system'">SYSTEM (JRNL)</button>
+    <button class="orange" onclick="convertAll()">CONVERTER .H264</button>
+</div>
+
+<hr>
+<div class="grid">
+    <button class="blue" onclick="motorOn()">MOTOR ON</button>
+    <button class="orange" onclick="motorOff()">MOTOR OFF</button>
+</div>
+<h2 style="text-align:center;">TAILSCALE</h2>
+<div class="grid">
+    <button class="green" onclick="enableTailscale()">ATIVAR</button>
+    <button class="red" onclick="disableTailscale()">DESATIVAR</button>
+</div>
+
+<hr>
+
+<h2 style="text-align:center;">GALERIA</h2>
+<div class="grid">
+    <button class="black" onclick="zipFiles()">BAIXAR ZIP</button>
+    <button class="red" onclick="deleteAll()">LIMPAR TUDO</button>
+</div>
+
+<div id="file_list" class="gallery">
+    <!-- Arquivos aparecem aqui -->
+    {% for f in files %}
+        <div class="file-box">
+            {{ f }} —
+            <a href="/api/files/download/{{ f }}">Baixar</a>
+        </div>
+    {% endfor %}
+</div>
+
+<script>
+    async function updateStatus() {
+        const res = await fetch("/api/status");
+        const d = await res.json();
+        document.getElementById("cam_status").textContent = d.mode;
+    }
+
+    async function updateTailscale() {
+        const res = await fetch("/api/tailscale/status");
+        const d = await res.json();
+        document.getElementById("tailscale_status").textContent = d.tailscale;
+    }
+
+    async function startRecord() {
+        await fetch("/api/record/start");
+        updateStatus();
+        alert("Gravando!");
+    }
+
+    async function stopRecord() {
+        await fetch("/api/record/stop");
+        updateStatus();
+    }
+
+    async function takePhoto() {
+        await fetch("/api/photo/single");
+        location.reload();
+    }
+
+    async function sequencePhotos() {
+        await fetch("/api/photo/sequence");
+        alert("Burst iniciado!");
+    }
+
+    async function convertAll() {
+        await fetch("/api/convert_all");
+        alert("Conversão iniciada!");
+        setTimeout(() => location.reload(), 3000);
+    }
+
+    async function zipFiles() {
+        window.location = "/api/files/zip";
+    }
+
+    async function deleteAll() {
+        if (confirm("Deseja apagar TODOS os arquivos?")) {
+            await fetch("/api/files/delete_all");
+            location.reload();
+        }
+    }
+
+    async function enableTailscale() {
+        await fetch("/api/tailscale/enable");
+        updateTailscale();
+    }
+
+    async function disableTailscale() {
+        await fetch("/api/tailscale/disable");
+        updateTailscale();
+    }
+    async function motorOn() {
+        await fetch("/api/motor/on");
+    }
+
+    async function motorOff() {
+        await fetch("/api/motor/off");
+    }
+
+    async function motorStatus() {
+        const r = await fetch("/api/motor/status");
+        const d = await r.json();
+        console.log(d);
+    }
+
+    // SSE: recebe logs do STM
+    (function startMotorStream(){
+        const logEl = document.getElementById("motor_log");
+        const es = new EventSource("/api/motor/stream");
+        es.onmessage = (ev) => {
+            logEl.textContent += ev.data + "\n";
+            logEl.scrollTop = logEl.scrollHeight;
+        };
+        es.onerror = () => {
+            logEl.textContent += "LOG: stream disconnected\n";
+        };
+    })();
+
+    setInterval(() => {
+        updateStatus();
+        updateTailscale();
+    }, 1200);
+
+    updateStatus();
+    updateTailscale();
+</script>
+
+</body>
+</html>
